@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+
+<!-- Mirrored from eaglercraft.q13x.com/ by HTTrack Website Copier/3.x [XR&CO'2014], Tue, 12 Sep 2023 22:54:12 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=utf-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Minecraft 1.8.8 (EaglercraftX), in a web browser" />
+<meta name="keywords" content="eaglercraft, eaglercraftx, minecraft, 1.8, 1.8.8" />
+<title>Minecraft 1.8.8</title>
+<meta property="og:locale" content="en-US" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Minecraft 1.8.8" />
+<meta property="og:description" content="An online version of EaglercraftX. Play Minecraft 1.8.8 on a Chromebook!" />
+<link type="image/ico" rel="shortcut icon" href="favicon.ico" />
+<script type="3afc1d89c5c2ca46f1fee7a3-text/javascript" src="classes.js"></script>
+<script type="3afc1d89c5c2ca46f1fee7a3-text/javascript" src="fix-webm-duration.js"></script>
+<script type="3afc1d89c5c2ca46f1fee7a3-text/javascript" src="largeEPK.js"></script>
+<script type="3afc1d89c5c2ca46f1fee7a3-text/javascript" src="sha256.js"></script>
+<script type="3afc1d89c5c2ca46f1fee7a3-text/javascript">
+			"use strict";
+			window.addEventListener("load", async () => {
+				if(document.location.href.startsWith("file:")) {
+					alert("HTTP please, do not open this file locally, run a local HTTP server and load it via HTTP");
+				}else {
+					const LEPK_ASSETS = "gameAssets/meta.json";
+					let assetsURI = null;
+
+					const dbName = 'cache';
+					const dbVersion = 1;
+
+					async function setCachedAssetsEPK(arrayBuffer) {
+						const db = await openDatabase();
+						const transaction = db.transaction('cache', 'readwrite');
+						const objectStore = transaction.objectStore('cache');
+						objectStore.put(arrayBuffer, 'cachedAssetsEPK');
+						transaction.oncomplete = () => {
+							db.close();
+						};
+					}
+
+					async function getCachedAssetsEPK() {
+						const db = await openDatabase();
+						const transaction = db.transaction('cache', 'readonly');
+						const objectStore = transaction.objectStore('cache');
+						const getRequest = objectStore.get('cachedAssetsEPK');
+						return new Promise((resolve, reject) => {
+							getRequest.onsuccess = event => {
+								resolve(event.target.result);
+							};
+							getRequest.onerror = event => {
+								reject(event.target.error);
+							};
+						}).finally(() => {
+							db.close();
+						});
+					}
+
+					async function openDatabase() {
+						return new Promise((resolve, reject) => {
+							const request = indexedDB.open(dbName, dbVersion);
+							request.onerror = event => {
+								reject(request.error);
+							};
+							request.onupgradeneeded = event => {
+								const db = event.target.result;
+								db.createObjectStore('cache');
+							};
+							request.onsuccess = event => {
+								const db = event.target.result;
+								resolve(db);
+							};
+						});
+					}
+
+					try {
+						const cacheFetch = await getCachedAssetsEPK();
+						if (cacheFetch != null) {
+							console.info(`[bootstrap] Loaded cached assets.epk: <${cacheFetch.byteLength} bytes>`);
+							const hash = new jsSHA("SHA-256", "ARRAYBUFFER").update(cacheFetch).getHash("HEX"),
+									fetchedMetadata = await new EPKLib.LargeEPK(LEPK_ASSETS, "URL").fetchMetadata();
+							if (fetchedMetadata.hash === hash) {
+								console.info("[bootstrap] Cache has matching SHA256 hash, hash: " + hash);
+								console.info("[bootstrap] Finished loading assets, starting game...");
+								assetsURI = URL.createObjectURL(new Blob([cacheFetch], { type: 'application/octet-stream' }));
+							} else {
+								console.warn(`[bootstrap] Mismatching hashes detected! Cache hash: ${hash}, metadata hash: ${fetchedMetadata.hash}.`);
+								console.warn(`[bootstrap] This isn't necessarily bad - the server's assets.epk might've updated. Proceeding to redownload assets.epk...`);
+								console.info("[bootstrap] Redownloading assets.epk...");
+								const rawAssets = (await fetchedMetadata.fetch()).getComplete();
+								await setCachedAssetsEPK(rawAssets);
+
+								console.info("[bootstrap] Downloaded assets.epk, launching...");
+								assetsURI = URL.createObjectURL(new Blob([rawAssets], { type: 'application/octet-stream' }));
+							}
+						} else {
+							console.warn("[bootstrap] Could not find cached assets.epk - downloading...");
+							const rawAssets = (await (await new EPKLib.LargeEPK(LEPK_ASSETS, "URL").fetchMetadata()).fetch()).getComplete(),
+									urlAssets = URL.createObjectURL(new Blob([rawAssets], { type: 'application/octet-stream' }));
+							await setCachedAssetsEPK(rawAssets);
+							assetsURI = urlAssets;
+						}
+					} catch (err) {
+						alert(`Something went wrong! If this keeps happening, try resetting your cookies and other site data on your browser. Procedure may vary between browsers.\n-----\n${err.stack}`)
+						console.error(`[bootstrap] Could not load cached assets.epk file!\n${err.stack}`)
+						return;
+					}
+
+					window.eaglercraftXOpts = {
+						container: "game_frame",
+						assetsURI,
+						localesURI: "lang/",
+						servers: [
+							{ addr: "wss://reading-gs.q13x.com", name: "Public Minecraft Server" },
+							{ addr: "wss://eaglerproxy.q13x.com", name: "Vanilla Proxy Server" },
+							{ addr: "wss://mc.arch.lol", name: "ArchMC" }
+						]
+					};
+					
+					var q = window.location.search;
+					if(typeof q === "string" && q.startsWith("?")) {
+						q = new URLSearchParams(q);
+						var s = q.get("server");
+						if(s) window.eaglercraftXOpts.joinServer = s;
+					}
+
+					console.log(`[bootstrap] Downloading game JavaScript file...`);
+					const xhr = new XMLHttpRequest();
+					xhr.onreadystatechange = function () {
+						if (xhr.readyState === XMLHttpRequest.DONE) {
+							if (xhr.status === 200) {
+								var downloadedJavascript = xhr.responseText;
+								globalThis.MAIN_SOURCE = downloadedJavascript
+
+								console.log("[bootstrap] Downloaded JavaScript, launching...")
+								eval(downloadedJavascript);
+								main();
+							} else {
+								console.error("[bootstrap] Failed to download JavaScript - received status code " + xhr.status + "!")
+								alert("**** " + xhr.status + " - DOWNLOAD FAILED!\nThe game cannot start! " + (xhr.status == 404 ? "Perhaps there is no classes.js on the server?" : "An unknown error occurred."))
+							}
+						}
+					};
+					xhr.open("GET", "classes.js", true);
+					xhr.send();
+				}
+			});
+		</script>
+</head>
+<style>body{margin:0px;width:100vw;height:100vh;overflow:hidden;}</style>
+<body id="game_frame">
+<script src="cdn-cgi/scripts/7d0fa10a/cloudflare-static/rocket-loader.min.js" data-cf-settings="3afc1d89c5c2ca46f1fee7a3-|49" defer></script><script>(function(){var js = "window['__CF$cv$params']={r:'805bbb13cb8522e4',t:'MTY5NDU1OTI1MC41ODkwMDA='};_cpo=document.createElement('script');_cpo.nonce='',_cpo.src='cdn-cgi/challenge-platform/h/b/scripts/jsd/8827f912/main.js',document.getElementsByTagName('head')[0].appendChild(_cpo);";var _0xh = document.createElement('iframe');_0xh.height = 1;_0xh.width = 1;_0xh.style.position = 'absolute';_0xh.style.top = 0;_0xh.style.left = 0;_0xh.style.border = 'none';_0xh.style.visibility = 'hidden';document.body.appendChild(_0xh);function handler() {var _0xi = _0xh.contentDocument || _0xh.contentWindow.document;if (_0xi) {var _0xj = _0xi.createElement('script');_0xj.innerHTML = js;_0xi.getElementsByTagName('head')[0].appendChild(_0xj);}}if (document.readyState !== 'loading') {handler();} else if (window.addEventListener) {document.addEventListener('DOMContentLoaded', handler);} else {var prev = document.onreadystatechange || function () {};document.onreadystatechange = function (e) {prev(e);if (document.readyState !== 'loading') {document.onreadystatechange = prev;handler();}};}})();</script></body>
+
+<!-- Mirrored from eaglercraft.q13x.com/ by HTTrack Website Copier/3.x [XR&CO'2014], Tue, 12 Sep 2023 22:54:14 GMT -->
+</html>
